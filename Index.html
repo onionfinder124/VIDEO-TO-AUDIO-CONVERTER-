@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video to Audio Converter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        #input-container {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 20px;
+        }
+        input[type="file"] {
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #3e8e41;
+        }
+        #output {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Video to Audio Converter</h1>
+    <div id="input-container">
+        <input type="file" id="video-input" accept="video/*">
+        <button id="convert-button">Convert to Audio</button>
+    </div>
+    <div id="output"></div>
+
+    <script>
+        document.getElementById('convert-button').addEventListener('click', function() {
+            const videoInput = document.getElementById('video-input');
+            const outputDiv = document.getElementById('output');
+            const file = videoInput.files[0];
+
+            if (!file) {
+                outputDiv.textContent = 'Please select a video file.';
+                return;
+            }
+
+            outputDiv.textContent = 'Converting...';
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const videoData = e.target.result;
+                convertVideoToAudio(videoData, file.name);
+            };
+            reader.onerror = function() {
+                outputDiv.textContent = 'Error reading the file.';
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        async function convertVideoToAudio(videoData, fileName) {
+            const outputDiv = document.getElementById('output');
+            try {
+                const arrayBuffer = videoData;
+                const audioContext = new AudioContext();
+                const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+                const wavData = convertToWav(audioBuffer);
+                const wavBlob = new Blob([wavData], { type: 'audio/wav' });
+
+                const url = URL.createObjectURL(wavBlob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = fileName.replace(/\.[^/.]+$/, "") + '.wav';
+                link.textContent = 'Download Audio';
+                outputDiv.innerHTML = '';
+                outputDiv.appendChild(link);
+            } catch (error) {
+                outputDiv.textContent = 'Error converting video to audio: ' + error;
+            }
+        }
+
+        function convertToWav(audioBuffer) {
+            const numChannels = audioBuffer.numberOfChannels;
+            const sampleRate = audioBuffer.sampleRate;
+            const length = audioBuffer.length;
+            const audioData = new Float32Array(length * numChannels);
+
+            for (let channel = 0; channel < numChannels; channel++) {
+                const channelData = audioBuffer.getChannelData(channel);
+                for (let i = 0; i < length; i++) {
+                    audioData[i * numChannels + channel] = channelData[i];
+                }
+            }
+
+            const buffer = new ArrayBuffer(44 + audioData.length * 2);
+            const view = new DataView(buffer);
+
+            /* RIFF identifier */
+            writeUTFBytes(view, 0, 'RIFF');
+            /* RIFF size */
+            view.setUint32(4, 36 + audioData.length * 2, true);
+            /* RIFF type */
+            writeUTFBytes(view, 8, 'WAVE');
+            /* format chunk identifier */
+            writeUTFBytes(view, 12, 'fmt ');
+            /* format chunk length */
+            view.setUint32(16, 16, true);
+            /* sample format (raw) */
+            view.setUint16(20, 1, true);
+            /* channel count */
+            view.setUint16(22, numChannels, true);
+            /* sample rate */
+            view.setUint32(24, sampleRate, true);
+            /* byte rate (sample rate * block align) */
+            view.setUint32(28, sampleRate * numChannels * 2, true);
+            /* block align (channel count * bytes per sample) */
+            view.setUint16(32, numChannels * 2, true);
+            /* bits per sample */
+            view.setUint16(34, 16, true);
+            /* data chunk identifier */
+            writeUTFBytes(view, 36, 'data');
+            /* data chunk length */
+            view.setUint32(40, audioData.length * 2, true);
+
+            floatTo16BitPCM(view, 44, audioData);
+
+            return view.buffer;
+        }
+
+        function writeUTFBytes(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
+        function floatTo16BitPCM(output, offset, input) {
+            for (let i = 0; i < input.length; i++, offset += 2) {
+                const s = Math.max(-1, Math.min(1, input[i]));
+                output.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+            }
+        }
+    </script>
+</body>
+</html>
+
